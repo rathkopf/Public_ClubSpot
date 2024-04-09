@@ -231,7 +231,7 @@ class LocalStorageHandler {
     constructor(TCtor) {
         const typeName = TCtor.name;
         const currentUrl = window.location.href;
-        const regex = /\/([^\/]+)$/; // Regular expression to match the last part of the URL
+        const regex = /\/([^\/]+)\/?$/; // Regular expression to match the last part of the URL
         const match = currentUrl.match(regex);
         const raceKey = match ? match[1] : '';
         this.localStorageKey = `${typeName}_${raceKey}`;
