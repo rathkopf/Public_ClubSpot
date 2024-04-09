@@ -1,4 +1,5 @@
 "use strict";
+// EntryListPage.ts
 class EntryListPage {
     static create(document, tableFoundEvent) {
         const regexPattern = /^https?:\/\/theclubspot.com\/dashboard\/regatta\/[^\/]+\/(entry-list\/?)?$/;
@@ -97,6 +98,7 @@ class EntryListPage {
         (_a = this.TableChangedEvent) === null || _a === void 0 ? void 0 : _a.call(this, this.table);
     }
 }
+// ScoringPanelPage.ts
 class ScoringPanelPage {
     static create(document) {
         const regexPattern = /^https?:\/\/theclubspot.com\/scoring\/[^\/]+\/?$/;
@@ -106,15 +108,18 @@ class ScoringPanelPage {
         return new ScoringPanelPage(document);
     }
     constructor(document) {
+        var _a;
         this.document = document;
         this.SEARCH_INTERVAL = 200;
         this.TableChangedEvent = (_) => { };
-        this.FinishTimeVisible = false;
         this.OnFinishTimeDivChange = (visible) => {
             if (visible) {
                 this.ModifyFinishWindow();
             }
         };
+        this.settingsStorage = new LocalStorageHandler(ScoringPanelSettings);
+        this.settings = (_a = this.settingsStorage.load()) !== null && _a !== void 0 ? _a : new ScoringPanelSettings();
+        this.finishTimeEnabled = this.settings.enableDateInput;
         this.WatchForFinishTimeDivChanges('#overlay_finish-time', this.OnFinishTimeDivChange);
     }
     ModifyFinishWindow() {
@@ -151,29 +156,29 @@ class ScoringPanelPage {
         setInterval(() => {
             const element = this.document.querySelector(selector);
             const visible = !!element && element.style.display !== 'none';
-            if (this.FinishTimeVisible === visible) {
+            if (this.finishTimeEnabled === visible) {
                 return;
             }
             else {
-                this.FinishTimeVisible = visible;
+                this.finishTimeEnabled = visible;
                 callback(visible);
             }
         }, this.SEARCH_INTERVAL);
     }
 }
-// ==UserScript==
-// @name         ClubSpot Scoring Fixer
-// @namespace    http://tampermonkey.net/
-// @version      2024-03-28
-// @description  try to take over the world!
-// @author       Charley Rathkopf
-// @match        https://theclubspot.com/dashboard/regatta/*/
-// @match        https://theclubspot.com/dashboard/regatta/*/entry-list
-// @match        https://theclubspot.com/dashboard/regatta/*/entry-list/entries
-// @match        https://theclubspot.com/scoring/*/
-// @icon         data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==
-// @grant        none
-// ==/UserScript==
+// ScoringPanelSettings.ts
+class SettingsBase {
+    constructor() {
+        this.Key = "";
+    }
+}
+class ScoringPanelSettings {
+    constructor() {
+        this.enableDateInput = false;
+        this.lastDateUsed = new Date();
+    }
+}
+// main_script.ts
 (function () {
     // Function to apply the background color
     function applyBackgroundColor(row) {
@@ -194,7 +199,7 @@ class ScoringPanelPage {
     });
     function TableFoundEvent(table) {
         const tableRows = table.querySelectorAll('tr');
-        if (elDocument && tableRows.length > 1) { //     if (tableRows.length > 1) {
+        if (elDocument && tableRows.length > 1) {
             elDocument.FindTableEnabled = false;
             tableRows.forEach((row) => {
                 var _a;
@@ -216,3 +221,31 @@ class ScoringPanelPage {
         }
     }
 })();
+// storage.ts
+// Define a class to handle local storage operations
+class LocalStorageHandler {
+    // constructor(localStorageKey: string) {
+    //     this.localStorageKey = localStorageKey;
+    // }
+    // Copiolot search term "if i have a generic T in typescript, can I find what type T represents?"
+    constructor(TCtor) {
+        const typeName = TCtor.name;
+        const currentUrl = window.location.href;
+        const regex = /\/([^\/]+)$/; // Regular expression to match the last part of the URL
+        const match = currentUrl.match(regex);
+        const raceKey = match ? match[1] : '';
+        this.localStorageKey = `${typeName}_${raceKey}`;
+    }
+    // Save data to local storage
+    save(data) {
+        localStorage.setItem(this.localStorageKey, JSON.stringify(data));
+    }
+    // Retrieve data from local storage
+    load() {
+        const data = localStorage.getItem(this.localStorageKey);
+        if (data) {
+            return JSON.parse(data);
+        }
+        return null;
+    }
+}
