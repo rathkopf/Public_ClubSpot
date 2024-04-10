@@ -167,15 +167,37 @@ class ScoringPanelPage {
     }
 }
 // ScoringPanelSettings.ts
+/*
+the next steps:
+- make UI element that will toggel the date input
+- put appropriate classes on the date input for the setting
+- have the date input set the lastDateUsed property.
+*/
 class SettingsBase {
     constructor() {
-        this.Key = "";
+        this.onChange = () => { };
     }
 }
-class ScoringPanelSettings {
-    constructor() {
-        this.enableDateInput = false;
-        this.lastDateUsed = new Date();
+class ScoringPanelSettings extends SettingsBase {
+    get enableDateInput() {
+        return this._enableDateInput;
+    }
+    set enableDateInput(value) {
+        if (this._enableDateInput === value) {
+            return;
+        }
+        this._enableDateInput = value;
+        this.onChange();
+    }
+    get lastDateUsed() {
+        return new Date(this._lastDateUsed.getDate());
+    }
+    set lastDateUsed(value) {
+        if (this._lastDateUsed == value) {
+            return;
+        }
+        this._lastDateUsed = new Date(value.getDate());
+        this.onChange();
     }
 }
 // main_script.ts
@@ -224,15 +246,13 @@ class ScoringPanelSettings {
 // storage.ts
 // Define a class to handle local storage operations
 class LocalStorageHandler {
-    // constructor(localStorageKey: string) {
-    //     this.localStorageKey = localStorageKey;
-    // }
     // Copiolot search term "if i have a generic T in typescript, can I find what type T represents?"
     constructor(TCtor) {
+        this.settingsCtor = TCtor;
         const typeName = TCtor.name;
         const currentUrl = window.location.href;
-        const regex = /\/([^\/]+)\/?$/; // Regular expression to match the last part of the URL
-        const match = currentUrl.match(regex);
+        const regex = /\/([^/]+)\/?$/; // Regular expression to match the last part of the URL
+        const match = regex.exec(currentUrl);
         const raceKey = match ? match[1] : '';
         this.localStorageKey = `${typeName}_${raceKey}`;
     }
@@ -243,9 +263,16 @@ class LocalStorageHandler {
     // Retrieve data from local storage
     load() {
         const data = localStorage.getItem(this.localStorageKey);
+        let result;
         if (data) {
-            return JSON.parse(data);
+            result = JSON.parse(data);
         }
-        return null;
+        else {
+            result = new this.settingsCtor();
+        }
+        result.onChange = () => {
+            this.save(result);
+        };
+        return result;
     }
 }
