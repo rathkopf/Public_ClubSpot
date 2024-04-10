@@ -121,10 +121,32 @@ class ScoringPanelPage {
         this.settings = (_a = this.settingsStorage.load()) !== null && _a !== void 0 ? _a : new ScoringPanelSettings();
         this.finishTimeEnabled = this.settings.enableDateInput;
         this.WatchForFinishTimeDivChanges('#overlay_finish-time', this.OnFinishTimeDivChange);
+        this.uiManipulator = new UIManipulator(document);
     }
     ModifyFinishWindow() {
         this.DisableDateInputs();
         this.FixTimeInputs();
+        this.replaceDivAfterH3WithDateSwitch();
+    }
+    replaceDivAfterH3WithDateSwitch() {
+        const div = this.document.querySelector('h3:contains("Finish time") + .flexGrowOne');
+        if (div) {
+            this.uiManipulator.replaceDiv(div, this.createDateToggleDiv());
+        }
+    }
+    createDateToggleDiv() {
+        const div = this.uiManipulator.createDivWithClass('flexGrowOne');
+        div.style.alignSelf = 'center';
+        const rightAlignedDiv = this.uiManipulator.createDivWithClass('flexWrapRightAlign', 'tinyPaddingTop');
+        // add a div with right alignment
+        div.appendChild(rightAlignedDiv);
+        const labelDiv = this.document.createElement('div');
+        labelDiv.outerHTML = '<div class="flexNoWrap"><p class="inline-label noMinWidth">Enable Date</p></div>';
+        labelDiv.appendChild(this.uiManipulator.createTooltip('Turn this switch on to change the finish date.'));
+        rightAlignedDiv.appendChild(labelDiv);
+        rightAlignedDiv.appendChild(this.uiManipulator.createToggle(this.toggleFinishDate));
+        div.appendChild(rightAlignedDiv);
+        return div;
     }
     DisableDateInputs() {
         const dateInputs = this.document.querySelectorAll('.dateInput.flexGrowOne.flexNoWrap.smallerMarginTop:first-of-type input.required');
@@ -165,6 +187,9 @@ class ScoringPanelPage {
             }
         }, this.SEARCH_INTERVAL);
     }
+    toggleFinishDate() {
+        console.debug('toggleFinishDate');
+    }
 }
 // ScoringPanelSettings.ts
 /*
@@ -198,6 +223,70 @@ class ScoringPanelSettings extends SettingsBase {
         }
         this._lastDateUsed = new Date(value.getDate());
         this.onChange();
+    }
+}
+// UIManipulator.ts
+class UIManipulator {
+    constructor(document) {
+        this.document = document;
+    }
+    createDivWithClass(...className) {
+        const newDiv = this.document.createElement('div');
+        className.forEach((name) => {
+            newDiv.classList.add(name);
+        });
+        return newDiv;
+    }
+    replaceDiv(destinationDiv, newDiv) {
+        if (destinationDiv) {
+            destinationDiv.outerHTML = newDiv.outerHTML;
+        }
+        return destinationDiv;
+    }
+    replaceFlexGrowOneDiv(destinationDiv) {
+        if (destinationDiv) {
+            const newDiv = this.document.createElement('div');
+            newDiv.classList.add('flexGrowOne');
+            newDiv.style.alignSelf = 'center';
+            const innerDiv = this.document.createElement('div');
+            innerDiv.classList.add('flexWrapRightAlign', 'tinyPaddingTop');
+            const labelDiv = this.document.createElement('div');
+            labelDiv.classList.add('flexNoWrap');
+            const label = document.createElement('p');
+            label.classList.add('inline-label', 'noMinWidth');
+            label.textContent = 'Enable Date';
+            const tooltipWrapper = this.createTooltip('Turn this switch on to change the finish date.');
+            const toggle = this.createToggle();
+            labelDiv.appendChild(label);
+            labelDiv.appendChild(tooltipWrapper);
+            innerDiv.appendChild(labelDiv);
+            innerDiv.appendChild(toggle);
+            newDiv.appendChild(innerDiv);
+            destinationDiv.outerHTML = newDiv.outerHTML;
+        }
+    }
+    createToggle(callack) {
+        const wapperDiv = document.createElement('div');
+        wapperDiv.classList.add('toggleWrap', 'ease');
+        wapperDiv.onclick = callack;
+        wapperDiv.style.marginTop = '0px';
+        wapperDiv.style.marginLeft = '-2px';
+        const toggleSlider = document.createElement('div');
+        toggleSlider.classList.add('toggleSlider', 'ease');
+        wapperDiv.appendChild(toggleSlider);
+        return wapperDiv;
+    }
+    createTooltip(tooltipText) {
+        const tooltipWrapper = document.createElement('div');
+        tooltipWrapper.classList.add('tooltipDotWrapper');
+        const tooltipDot = document.createElement('div');
+        tooltipDot.classList.add('tooltipDot', 'info', 'tooltip');
+        const tooltipSpan = document.createElement('span');
+        tooltipSpan.classList.add('tooltipText', 'easeFast');
+        tooltipSpan.textContent = tooltipText;
+        tooltipDot.appendChild(tooltipSpan);
+        tooltipWrapper.appendChild(tooltipDot);
+        return tooltipWrapper;
     }
 }
 // main_script.ts
