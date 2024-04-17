@@ -98,6 +98,75 @@ class EntryListPage {
         (_a = this.TableChangedEvent) === null || _a === void 0 ? void 0 : _a.call(this, this.table);
     }
 }
+// RaceDetailsPage.ts
+class RaceDetailsPage {
+    static create(document) {
+        // https://theclubspot.com/dashboard/regatta/VTjfs9q0dy/race-details/j2m02BfxCX/starts
+        // const regexPattern = /^https?:\/\/theclubspot.com\/dashboard\/regatta\/[^\/]+\/(edit-start\/?)?$/;
+        const regexPattern = /^https?:\/\/theclubspot.com\/dashboard\/regatta\/[^\/]+\/race-details\/[^\/]+(\/starts)?\/?$/;
+        if (!regexPattern.test(document.URL)) {
+            return null;
+        }
+        return new RaceDetailsPage(document);
+    }
+    constructor(document) {
+        this.document = document;
+        this.SEARCH_INTERVAL = 200;
+        this.lastrowCount = 0;
+        this.startsTableVisible = false;
+        this.settingsStorage = new LocalStorageHandler(RaceDetailsSettings);
+        this.settings = this.settingsStorage.getSettings();
+        // mutation observer doesn't do it.
+        // will need to just check the number of rows in the table
+        // wait 500 ms before starting to look for table changes
+        setTimeout(() => {
+            this.watchForStartsTableChanges();
+        }, 500);
+    }
+    watchForStartsTableChanges() {
+        setInterval(() => {
+            const regexPattern = /^https?:\/\/theclubspot.com\/dashboard\/regatta\/[^\/]+\/race-details\/[^\/]+(\/starts)\/?$/;
+            if (!regexPattern.test(this.document.URL)) {
+                this.startsTableVisible = false;
+                return;
+            }
+            this.startsTableVisible = true;
+            const table = this.document.querySelector('.view_starts table.tableInsert');
+            const rowCount = table === null || table === void 0 ? void 0 : table.querySelectorAll('tr').length;
+            if (!!rowCount && rowCount !== this.lastrowCount) {
+                if (this.lastrowCount && rowCount > this.lastrowCount) {
+                    this.onStartAdded(table.rows[rowCount - 1]);
+                }
+                this.lastrowCount = rowCount;
+            }
+        }, this.SEARCH_INTERVAL);
+    }
+    onStartAdded(tr) {
+        console.log(`added row ${tr.outerHTML}`);
+        this.settings.startAddedTime = new Date(); // then we will use this and see how long it has been for checking if we auto-click the edit button.
+        tr.click();
+    }
+}
+// SettingsBase.ts
+class SettingsBase {
+    constructor() {
+        this.onChange = () => { };
+    }
+}
+// RaceDetailsSettings.ts
+/// <reference path="SettingsBase.ts" />
+class RaceDetailsSettings extends SettingsBase {
+    get startAddedTime() {
+        return new Date(this._startAddedTime);
+    }
+    set startAddedTime(value) {
+        if (this._startAddedTime == value) {
+            return;
+        }
+        this._startAddedTime = value;
+        this.onChange();
+    }
+}
 // ScoringPanelPage.ts
 class ScoringPanelPage {
     static create(document) {
@@ -108,87 +177,174 @@ class ScoringPanelPage {
         return new ScoringPanelPage(document);
     }
     constructor(document) {
-        var _a;
         this.document = document;
         this.SEARCH_INTERVAL = 200;
-        this.TableChangedEvent = (_) => { };
-        this.OnFinishTimeDivChange = (visible) => {
+        this.isFinishTimeInputVisible = false;
+        this.onFinishTimeDivVisibleChange = (visible) => {
             if (visible) {
-                this.ModifyFinishWindow();
+                this.modifyFinishWindow();
             }
         };
         this.settingsStorage = new LocalStorageHandler(ScoringPanelSettings);
-        this.settings = (_a = this.settingsStorage.load()) !== null && _a !== void 0 ? _a : new ScoringPanelSettings();
-        this.finishTimeEnabled = this.settings.enableDateInput;
-        this.WatchForFinishTimeDivChanges('#overlay_finish-time', this.OnFinishTimeDivChange);
+        this.settings = this.settingsStorage.getSettings();
+        this.watchForFinishTimeDivVisibleChanges('#overlay_finish-time', this.onFinishTimeDivVisibleChange);
         this.uiManipulator = new UIManipulator(document);
     }
-    ModifyFinishWindow() {
-        this.DisableDateInputs();
-        this.FixTimeInputs();
+    modifyFinishWindow() {
+        this.setEnabledInputStyles();
+        this.setDateInputsEnabledState(this.settings.enableDateInput);
+        this.fixDateInputs();
+        this.fixTimeInputs();
         this.replaceDivAfterH3WithDateSwitch();
+        this.hideScoreInputTypeSelector();
+        this.addInputEventHandlerOnDateToSaveDate();
+    }
+    setEnabledInputStyles() {
+        this.disableInputColor = 'lightgray';
+        this.enabledInputColor = this.getDateInputs()[0].style.color;
     }
     replaceDivAfterH3WithDateSwitch() {
-        const div = this.document.querySelector('h3:contains("Finish time") + .flexGrowOne');
+        const div = $("h3:contains('Finish time') ~ .flexGrowOne").get(0);
         if (div) {
-            this.uiManipulator.replaceDiv(div, this.createDateToggleDiv());
+            this.createDateToggleDiv(div);
         }
     }
-    createDateToggleDiv() {
-        const div = this.uiManipulator.createDivWithClass('flexGrowOne');
+    hideScoreInputTypeSelector() {
+        const div = this.document.querySelector('.scoreInputTypeSelector');
+        if (div) {
+            div.style.display = 'none';
+        }
+    }
+    createDateToggleDiv(div) {
+        div = this.uiManipulator.addClassesToDiv(div, 'flexGrowOne', 'tinyPaddingRight');
         div.style.alignSelf = 'center';
         const rightAlignedDiv = this.uiManipulator.createDivWithClass('flexWrapRightAlign', 'tinyPaddingTop');
         // add a div with right alignment
         div.appendChild(rightAlignedDiv);
-        const labelDiv = this.document.createElement('div');
-        labelDiv.outerHTML = '<div class="flexNoWrap"><p class="inline-label noMinWidth">Enable Date</p></div>';
-        labelDiv.appendChild(this.uiManipulator.createTooltip('Turn this switch on to change the finish date.'));
+        let labelDiv = this.document.createElement('div');
         rightAlignedDiv.appendChild(labelDiv);
-        rightAlignedDiv.appendChild(this.uiManipulator.createToggle(this.toggleFinishDate));
+        labelDiv.outerHTML = '<div class="flexNoWrap"><p class="inline-label noMinWidth">Enable Date</p></div>';
+        labelDiv = rightAlignedDiv.querySelector('div');
+        labelDiv.appendChild(this.uiManipulator.createTooltip('Turn this switch on to change the finish date.'));
+        const toggle = this.uiManipulator.createToggle(this.settings.enableDateInput, () => this.toggleFinishDate(toggle));
+        rightAlignedDiv.appendChild(toggle);
         div.appendChild(rightAlignedDiv);
         return div;
     }
-    DisableDateInputs() {
-        const dateInputs = this.document.querySelectorAll('.dateInput.flexGrowOne.flexNoWrap.smallerMarginTop:first-of-type input.required');
-        dateInputs.forEach(input => {
-            input.disabled = true;
-            input.style.color = 'lightgray';
-            input.classList.remove('required');
-        });
+    set DateInputsEnabled(enabled) {
+        if (this.settings.enableDateInput === enabled) {
+            return;
+        }
+        this.setDateInputsEnabledState(enabled);
     }
-    FixTimeInputs() {
-        const inputs = this.document.querySelectorAll('.dateInput.flexGrowOne.flexNoWrap.smallerMarginTop:last-of-type input.required');
+    setDateInputsEnabledState(enabled) {
+        const dateInputs = this.getDateInputs();
+        if (this.settings.lastDateUsed) {
+            const date = new Date(this.settings.lastDateUsed);
+            dateInputs[0].value = (date.getMonth() + 1).toString().padStart(2, '0');
+            dateInputs[1].value = date.getDate().toString().padStart(2, '0');
+            dateInputs[2].value = date.getFullYear().toString();
+            // dispatch an event so vue can pick up the change
+            const event = new Event("input", { bubbles: true });
+            dateInputs.forEach(input => input.dispatchEvent(event));
+        }
+        this.settings.enableDateInput = enabled;
+        dateInputs.forEach(input => {
+            if (enabled) {
+                input.style.color = this.enabledInputColor;
+                input.disabled = false;
+            }
+            else {
+                input.style.color = this.disableInputColor;
+                input.disabled = true;
+            }
+        });
+        if (enabled) {
+            dateInputs[0].focus();
+            dateInputs[0].select();
+        }
+        else { // disabled
+            const timeInput = this.getTimeInputs()[0];
+            timeInput.focus();
+            timeInput.select();
+        }
+    }
+    get DateInputsEnabled() {
+        return this.settings.enableDateInput;
+    }
+    getTimeInputs() {
+        return this.document.querySelectorAll('.dateInput.flexGrowOne.flexNoWrap.smallerMarginTop:last-of-type input.required');
+    }
+    getDateInputs() {
+        return this.document.querySelectorAll('.dateInput.flexGrowOne.flexNoWrap.smallerMarginTop:first-of-type input.required');
+    }
+    fixTimeInputs() {
+        const inputs = this.getTimeInputs();
+        this.fixInputsToAutoAdvance(inputs);
+        const firstTimeInput = inputs[0];
+        if (firstTimeInput && !this.settings.enableDateInput) {
+            firstTimeInput.focus();
+            firstTimeInput.select();
+        }
+    }
+    fixDateInputs() {
+        this.fixInputsToAutoAdvance(this.getDateInputs());
+    }
+    fixInputsToAutoAdvance(inputs, isDate = false) {
         inputs.forEach(input => {
             input.addEventListener('input', () => {
                 const currentIndex = Array.from(inputs).indexOf(input);
                 const nextInput = inputs[currentIndex + 1] || inputs[0];
+                if (isDate && currentIndex === 2 && input.value.length === 4) {
+                    nextInput.focus();
+                    nextInput.select();
+                    return;
+                }
                 if (input.value.length === 2) {
                     nextInput.focus();
                     nextInput.select();
                 }
             });
         });
-        const firstTimeInput = inputs[0];
-        if (firstTimeInput) {
-            firstTimeInput.focus();
-            firstTimeInput.select();
-        }
     }
-    WatchForFinishTimeDivChanges(selector, callback) {
+    watchForFinishTimeDivVisibleChanges(selector, callback) {
         setInterval(() => {
             const element = this.document.querySelector(selector);
             const visible = !!element && element.style.display !== 'none';
-            if (this.finishTimeEnabled === visible) {
+            if (this.isFinishTimeInputVisible === visible) {
                 return;
             }
             else {
-                this.finishTimeEnabled = visible;
+                this.isFinishTimeInputVisible = visible;
                 callback(visible);
             }
         }, this.SEARCH_INTERVAL);
     }
-    toggleFinishDate() {
-        console.debug('toggleFinishDate');
+    toggleFinishDate(toggle) {
+        this.DateInputsEnabled = !this.settings.enableDateInput;
+        this.uiManipulator.setToggleValue(this.settings.enableDateInput, toggle);
+    }
+    addInputEventHandlerOnDateToSaveDate() {
+        const dateInputs = this.getDateInputs();
+        dateInputs.forEach(input => {
+            input.addEventListener('input', () => {
+                this.saveLastDateUsed();
+            });
+        });
+    }
+    getDateInputValue() {
+        const dateInputs = this.getDateInputs();
+        const month = parseInt(dateInputs[0].value);
+        const day = parseInt(dateInputs[1].value);
+        const year = parseInt(dateInputs[2].value);
+        return new Date(year, month - 1, day);
+    }
+    saveLastDateUsed() {
+        const newDate = this.getDateInputValue();
+        if (newDate == this.settings.lastDateUsed) {
+            return;
+        }
+        this.settings.lastDateUsed = newDate;
     }
 }
 // ScoringPanelSettings.ts
@@ -198,11 +354,7 @@ the next steps:
 - put appropriate classes on the date input for the setting
 - have the date input set the lastDateUsed property.
 */
-class SettingsBase {
-    constructor() {
-        this.onChange = () => { };
-    }
-}
+/// <reference path="SettingsBase.ts" />
 class ScoringPanelSettings extends SettingsBase {
     get enableDateInput() {
         return this._enableDateInput;
@@ -215,66 +367,51 @@ class ScoringPanelSettings extends SettingsBase {
         this.onChange();
     }
     get lastDateUsed() {
-        return new Date(this._lastDateUsed.getDate());
+        return new Date(this._lastDateUsed);
     }
     set lastDateUsed(value) {
         if (this._lastDateUsed == value) {
             return;
         }
-        this._lastDateUsed = new Date(value.getDate());
+        this._lastDateUsed = value;
         this.onChange();
     }
 }
-// UIManipulator.ts
 class UIManipulator {
     constructor(document) {
         this.document = document;
     }
     createDivWithClass(...className) {
-        const newDiv = this.document.createElement('div');
+        return this.addClassesToDiv(this.document.createElement('div'), ...className);
+    }
+    addClassesToDiv(div, ...className) {
         className.forEach((name) => {
-            newDiv.classList.add(name);
+            div.classList.add(name);
         });
-        return newDiv;
+        return div;
     }
-    replaceDiv(destinationDiv, newDiv) {
-        if (destinationDiv) {
-            destinationDiv.outerHTML = newDiv.outerHTML;
+    setToggleValue(newValue, toggle) {
+        if (newValue) {
+            toggle.classList.add('enabled');
         }
-        return destinationDiv;
-    }
-    replaceFlexGrowOneDiv(destinationDiv) {
-        if (destinationDiv) {
-            const newDiv = this.document.createElement('div');
-            newDiv.classList.add('flexGrowOne');
-            newDiv.style.alignSelf = 'center';
-            const innerDiv = this.document.createElement('div');
-            innerDiv.classList.add('flexWrapRightAlign', 'tinyPaddingTop');
-            const labelDiv = this.document.createElement('div');
-            labelDiv.classList.add('flexNoWrap');
-            const label = document.createElement('p');
-            label.classList.add('inline-label', 'noMinWidth');
-            label.textContent = 'Enable Date';
-            const tooltipWrapper = this.createTooltip('Turn this switch on to change the finish date.');
-            const toggle = this.createToggle();
-            labelDiv.appendChild(label);
-            labelDiv.appendChild(tooltipWrapper);
-            innerDiv.appendChild(labelDiv);
-            innerDiv.appendChild(toggle);
-            newDiv.appendChild(innerDiv);
-            destinationDiv.outerHTML = newDiv.outerHTML;
+        else {
+            toggle.classList.remove('enabled');
         }
     }
-    createToggle(callack) {
-        const wapperDiv = document.createElement('div');
-        wapperDiv.classList.add('toggleWrap', 'ease');
-        wapperDiv.onclick = callack;
-        wapperDiv.style.marginTop = '0px';
-        wapperDiv.style.marginLeft = '-2px';
+    createToggle(currentValue, callback) {
+        const wrapperDiv = document.createElement('div');
+        wrapperDiv.classList.add('toggleWrap', 'ease');
+        wrapperDiv.style.marginTop = '0px';
+        wrapperDiv.style.marginLeft = '-2px';
+        wrapperDiv.style.marginRight = '3px';
         const toggleSlider = document.createElement('div');
         toggleSlider.classList.add('toggleSlider', 'ease');
-        wapperDiv.appendChild(toggleSlider);
-        return wapperDiv;
+        wrapperDiv.appendChild(toggleSlider);
+        wrapperDiv.addEventListener('click', () => {
+            callback();
+        });
+        this.setToggleValue(currentValue, wrapperDiv);
+        return wrapperDiv;
     }
     createTooltip(tooltipText) {
         const tooltipWrapper = document.createElement('div');
@@ -297,6 +434,7 @@ class UIManipulator {
     }
     let elDocument = null;
     let spPage = null;
+    let raceDetailsPage = null;
     window.addEventListener('load', () => {
         elDocument = EntryListPage.create(document, TableFoundEvent);
         if (elDocument) {
@@ -305,6 +443,10 @@ class UIManipulator {
         }
         spPage = ScoringPanelPage.create(document);
         if (spPage) {
+            return;
+        }
+        raceDetailsPage = RaceDetailsPage.create(document);
+        if (raceDetailsPage) {
             return;
         }
     });
@@ -345,6 +487,17 @@ class LocalStorageHandler {
         const raceKey = match ? match[1] : '';
         this.localStorageKey = `${typeName}_${raceKey}`;
     }
+    // note that this will not support concurancy. There should only be
+    // one instance of a settings for any given key.
+    getSettings() {
+        const data = this.load();
+        let settings = new this.settingsCtor();
+        settings = Object.assign(settings, data);
+        settings.onChange = () => {
+            this.save(settings);
+        };
+        return settings;
+    }
     // Save data to local storage
     save(data) {
         localStorage.setItem(this.localStorageKey, JSON.stringify(data));
@@ -359,9 +512,6 @@ class LocalStorageHandler {
         else {
             result = new this.settingsCtor();
         }
-        result.onChange = () => {
-            this.save(result);
-        };
         return result;
     }
 }
