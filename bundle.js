@@ -114,36 +114,58 @@ class RaceDetailsPage {
         this.SEARCH_INTERVAL = 200;
         this.lastrowCount = 0;
         this.startsTableVisible = false;
+        this.editStartsVisible = false;
         this.settingsStorage = new LocalStorageHandler(RaceDetailsSettings);
         this.settings = this.settingsStorage.getSettings();
         // mutation observer doesn't do it.
         // will need to just check the number of rows in the table
         // wait 500 ms before starting to look for table changes
         setTimeout(() => {
-            this.watchForStartsTableChanges();
+            this.watchForTabChanges();
         }, 500);
     }
-    watchForStartsTableChanges() {
+    watchForTabChanges() {
         setInterval(() => {
-            const regexPattern = /^https?:\/\/theclubspot.com\/dashboard\/regatta\/[^\/]+\/race-details\/[^\/]+(\/starts)\/?$/;
-            if (!regexPattern.test(this.document.URL)) {
-                this.startsTableVisible = false;
-                return;
-            }
-            this.startsTableVisible = true;
-            const table = this.document.querySelector('.view_starts table.tableInsert');
-            const rowCount = table === null || table === void 0 ? void 0 : table.querySelectorAll('tr').length;
-            if (!!rowCount && rowCount !== this.lastrowCount) {
-                if (this.lastrowCount && rowCount > this.lastrowCount) {
-                    this.onStartAdded(table.rows[rowCount - 1]);
+            const regexPatternStarts = /^https?:\/\/theclubspot.com\/dashboard\/regatta\/[^\/]+\/race-details\/[^\/]+(\/starts)\/?$/;
+            const regexPatternEditStart = /^https?:\/\/theclubspot.com\/dashboard\/regatta\/[^\/]+\/race-details\/[^\/]+(\/edit-start)\/?$/;
+            if (regexPatternStarts.test(this.document.URL)) {
+                this.startsTableVisible = true;
+                const table = this.document.querySelector('.view_starts table.tableInsert');
+                const rowCount = table === null || table === void 0 ? void 0 : table.querySelectorAll('tr').length;
+                if (!!rowCount && rowCount !== this.lastrowCount) {
+                    if (this.lastrowCount && rowCount > this.lastrowCount) {
+                        this.onStartAdded(table.rows[rowCount - 1]);
+                    }
+                    this.lastrowCount = rowCount;
                 }
-                this.lastrowCount = rowCount;
+            }
+            else if (regexPatternEditStart.test(this.document.URL)) {
+                if (!this.editStartsVisible) {
+                    this.onEditStartsBecameVisible();
+                }
+                this.editStartsVisible = true;
+            }
+            else {
+                this.startsTableVisible = false;
             }
         }, this.SEARCH_INTERVAL);
     }
+    onEditStartsBecameVisible() {
+        if (this.settings.lastStartAddedTime.getTime() - new Date().getTime() < 1000) {
+            const link = Array.from(document.querySelectorAll('.standardCardFooter .cardFooterLink'))
+                .find(anchor => { var _a; return (_a = anchor.textContent) === null || _a === void 0 ? void 0 : _a.toLowerCase().includes('edit'); });
+            if (link) {
+                link.click();
+            }
+        }
+    }
     onStartAdded(tr) {
         console.log(`added row ${tr.outerHTML}`);
-        this.settings.startAddedTime = new Date(); // then we will use this and see how long it has been for checking if we auto-click the edit button.
+        const raceName = tr.getAttribute('data-class-id');
+        if (raceName) {
+            // then we will use this and see how long it has been for checking if we auto-click the edit button.
+            this.settings.setRaceAddedTime(raceName, new Date);
+        }
         tr.click();
     }
 }
@@ -151,20 +173,38 @@ class RaceDetailsPage {
 class SettingsBase {
     constructor() {
         this.onChange = () => { };
+        // keep this in case we need to clear out old settings
+        this.lastSettingsChange = null;
     }
 }
 // RaceDetailsSettings.ts
 /// <reference path="SettingsBase.ts" />
 class RaceDetailsSettings extends SettingsBase {
-    get startAddedTime() {
-        return new Date(this._startAddedTime);
+    constructor() {
+        super(...arguments);
+        // I probably won't need all of these. I was hoping that the start detail
+        // page would have the race ID.
+        this.raceAddedTimes = new Map();
     }
-    set startAddedTime(value) {
-        if (this._startAddedTime == value) {
+    set lastStartAddedTime(value) {
+        if (this._lastStartAddedTime == value) {
             return;
         }
-        this._startAddedTime = value;
+        this._lastStartAddedTime = value;
         this.onChange();
+    }
+    get lastStartAddedTime() {
+        return new Date(this._lastStartAddedTime);
+    }
+    setRaceAddedTime(race, value) {
+        if (value == this.raceAddedTimes.get(race)) {
+            return;
+        }
+        this.raceAddedTimes.set(race, value);
+        this.onChange();
+    }
+    getRaceAddedTime(race) {
+        return this.raceAddedTimes.get(race);
     }
 }
 // ScoringPanelPage.ts
@@ -184,10 +224,14 @@ class ScoringPanelPage {
             if (visible) {
                 this.modifyFinishWindow();
             }
+            else {
+                const searchField = this.document.querySelector('.scoring_search_bar.medium-placeholder');
+                searchField.focus();
+            }
         };
         this.settingsStorage = new LocalStorageHandler(ScoringPanelSettings);
         this.settings = this.settingsStorage.getSettings();
-        this.watchForFinishTimeDivVisibleChanges('#overlay_finish-time', this.onFinishTimeDivVisibleChange);
+        this.watchForFinishTimeDivVisibleChanges('#overlay_finish-time');
         this.uiManipulator = new UIManipulator(document);
     }
     modifyFinishWindow() {
@@ -307,7 +351,7 @@ class ScoringPanelPage {
             });
         });
     }
-    watchForFinishTimeDivVisibleChanges(selector, callback) {
+    watchForFinishTimeDivVisibleChanges(selector) {
         setInterval(() => {
             const element = this.document.querySelector(selector);
             const visible = !!element && element.style.display !== 'none';
@@ -316,7 +360,7 @@ class ScoringPanelPage {
             }
             else {
                 this.isFinishTimeInputVisible = visible;
-                callback(visible);
+                this.onFinishTimeDivVisibleChange(visible);
             }
         }, this.SEARCH_INTERVAL);
     }
@@ -428,6 +472,7 @@ class UIManipulator {
 }
 // main_script.ts
 (function () {
+    console.log(`clubspot fix version ${fullVersion} by Charley Rathkopf`);
     // Function to apply the background color
     function applyBackgroundColor(row) {
         row.style.backgroundColor = 'mistyrose';
@@ -494,6 +539,7 @@ class LocalStorageHandler {
         let settings = new this.settingsCtor();
         settings = Object.assign(settings, data);
         settings.onChange = () => {
+            settings.lastSettingsChange = new Date();
             this.save(settings);
         };
         return settings;
@@ -515,3 +561,7 @@ class LocalStorageHandler {
         return result;
     }
 }
+// main_script.ts
+const versionDate = '240418';
+const versionMinor = '2';
+const fullVersion = `0.1.${versionDate}.${versionMinor}`;
