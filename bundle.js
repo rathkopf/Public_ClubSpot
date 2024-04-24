@@ -292,6 +292,9 @@ class ScoringPanelPage {
             const event = new Event("input", { bubbles: true });
             dateInputs.forEach(input => input.dispatchEvent(event));
         }
+        else {
+            this.saveLastDateUsed();
+        }
         this.settings.enableDateInput = enabled;
         dateInputs.forEach(input => {
             if (enabled) {
@@ -323,25 +326,22 @@ class ScoringPanelPage {
         return this.document.querySelectorAll('.dateInput.flexGrowOne.flexNoWrap.smallerMarginTop:first-of-type input.required');
     }
     fixTimeInputs() {
-        const inputs = this.getTimeInputs();
-        this.fixInputsToAutoAdvance(inputs);
-        const firstTimeInput = inputs[0];
-        if (firstTimeInput && !this.settings.enableDateInput) {
-            firstTimeInput.focus();
-            firstTimeInput.select();
-        }
+        this.fixInputsToAutoAdvance(this.getTimeInputs());
     }
     fixDateInputs() {
-        this.fixInputsToAutoAdvance(this.getDateInputs());
+        this.fixInputsToAutoAdvance(this.getDateInputs(), true);
     }
     fixInputsToAutoAdvance(inputs, isDate = false) {
         inputs.forEach(input => {
             input.addEventListener('input', () => {
                 const currentIndex = Array.from(inputs).indexOf(input);
                 const nextInput = inputs[currentIndex + 1] || inputs[0];
-                if (isDate && currentIndex === 2 && input.value.length === 4) {
-                    nextInput.focus();
-                    nextInput.select();
+                if (isDate && currentIndex === 2) {
+                    if (input.value.length === 4) {
+                        const timeInputs = this.getTimeInputs();
+                        timeInputs[0].focus();
+                        timeInputs[0].select();
+                    }
                     return;
                 }
                 if (input.value.length === 2) {
@@ -411,6 +411,9 @@ class ScoringPanelSettings extends SettingsBase {
         this.onChange();
     }
     get lastDateUsed() {
+        if (!this._lastDateUsed || isNaN(this._lastDateUsed.getTime())) {
+            return null;
+        }
         return new Date(this._lastDateUsed);
     }
     set lastDateUsed(value) {
@@ -470,7 +473,12 @@ class UIManipulator {
         return tooltipWrapper;
     }
 }
+// version.ts 
+const versionDate = '240418';
+const versionMinor = '5';
+const fullVersion = `0.1.${versionDate}.${versionMinor}`;
 // main_script.ts
+/// <reference path="version.ts" />
 (function () {
     console.log(`clubspot fix version ${fullVersion} by Charley Rathkopf`);
     // Function to apply the background color
@@ -561,7 +569,3 @@ class LocalStorageHandler {
         return result;
     }
 }
-// main_script.ts
-const versionDate = '240418';
-const versionMinor = '2';
-const fullVersion = `0.1.${versionDate}.${versionMinor}`;
