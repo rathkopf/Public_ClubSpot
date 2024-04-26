@@ -1,4 +1,66 @@
 "use strict";
+// SettingsBase.ts
+class SettingsBase {
+    constructor() {
+        this.onChange = () => { };
+        // keep this in case we need to clear out old settings
+        this.lastSettingsChange = null;
+    }
+}
+// RaceDetailsSettings.ts
+/// <reference path="SettingsBase.ts" />
+class RaceDetailsSettings extends SettingsBase {
+    constructor() {
+        super(...arguments);
+        // I probably won't need all of these. I was hoping that the start detail
+        // page would have the race ID.
+        this.raceAddedTimes = new Map();
+    }
+    set lastStartAddedTime(value) {
+        if (this._lastStartAddedTime == value) {
+            return;
+        }
+        this._lastStartAddedTime = value;
+        this.onChange();
+    }
+    get lastStartAddedTime() {
+        return new Date(this._lastStartAddedTime);
+    }
+    setRaceAddedTime(race, value) {
+        if (value == this.raceAddedTimes.get(race)) {
+            return;
+        }
+        this.raceAddedTimes.set(race, value);
+        this.onChange();
+    }
+    getRaceAddedTime(race) {
+        return this.raceAddedTimes.get(race);
+    }
+}
+// EditStartsPage.ts
+/// <reference path="RaceDetailsSettings.ts" />
+class EditStartsPage {
+    static create(document) {
+        const regexPattern = /^https?:\/\/theclubspot.com\/dashboard\/regatta\/[^\/]+\/edit-start\/?$/;
+        if (!regexPattern.test(document.URL)) {
+            return null;
+        }
+        return new EditStartsPage(document);
+    }
+    constructor(document) {
+        this.document = document;
+        this.SEARCH_INTERVAL = 200;
+        this.settingsStorage = new LocalStorageHandler(RaceDetailsSettings);
+        this.settings = this.settingsStorage.getSettings();
+        // now we need to get the race info and all the starts
+        // get the last of the starts
+        // and add 5 minutes to the time
+        // and then edit this start, watching for the edit window
+        // when the edit window appears, we need to change the date and time to be 5 minutes from last start
+        // but only if we haven't already set the time for this start.
+        // so we need a setting that says if we have edited the start.
+    }
+}
 // EntryListPage.ts
 class EntryListPage {
     static create(document, tableFoundEvent) {
@@ -103,7 +165,7 @@ class RaceDetailsPage {
     static create(document) {
         // https://theclubspot.com/dashboard/regatta/VTjfs9q0dy/race-details/j2m02BfxCX/starts
         // const regexPattern = /^https?:\/\/theclubspot.com\/dashboard\/regatta\/[^\/]+\/(edit-start\/?)?$/;
-        const regexPattern = /^https?:\/\/theclubspot.com\/dashboard\/regatta\/[^\/]+\/race-details\/[^\/]+(\/starts)?\/?$/;
+        const regexPattern = /^https?:\/\/theclubspot.com\/dashboard\/regatta\/[^\/]+\/race-details\/[^\/]+(\/(starts|race-settings|assignments))?\/?$/;
         if (!regexPattern.test(document.URL)) {
             return null;
         }
@@ -115,6 +177,7 @@ class RaceDetailsPage {
         this.lastrowCount = 0;
         this.startsTableVisible = false;
         this.editStartsVisible = false;
+        this.raceDetailsVisible = false;
         this.settingsStorage = new LocalStorageHandler(RaceDetailsSettings);
         this.settings = this.settingsStorage.getSettings();
         // mutation observer doesn't do it.
@@ -127,7 +190,8 @@ class RaceDetailsPage {
     watchForTabChanges() {
         setInterval(() => {
             const regexPatternStarts = /^https?:\/\/theclubspot.com\/dashboard\/regatta\/[^\/]+\/race-details\/[^\/]+(\/starts)\/?$/;
-            const regexPatternEditStart = /^https?:\/\/theclubspot.com\/dashboard\/regatta\/[^\/]+\/race-details\/[^\/]+(\/edit-start)\/?$/;
+            const regexPatternEditStart = /^https?:\/\/theclubspot.com\/dashboard\/regatta\/[^\/]+\/(\/edit-start)\/?$/;
+            const regexPatternRaceSettings = /^https?:\/\/theclubspot.com\/dashboard\/regatta\/[^\/]+\/race-details\/[^\/]+(\/race-settings)\/?$/;
             if (regexPatternStarts.test(this.document.URL)) {
                 this.startsTableVisible = true;
                 const table = this.document.querySelector('.view_starts table.tableInsert');
@@ -145,10 +209,19 @@ class RaceDetailsPage {
                 }
                 this.editStartsVisible = true;
             }
+            else if (regexPatternRaceSettings.test(this.document.URL)) {
+                if (!this.raceDetailsVisible) {
+                    this.onRaceDetailsBecameVisible();
+                }
+                this.raceDetailsVisible = true;
+            }
             else {
                 this.startsTableVisible = false;
             }
         }, this.SEARCH_INTERVAL);
+    }
+    onRaceDetailsBecameVisible() {
+        throw new Error("Method not implemented.");
     }
     onEditStartsBecameVisible() {
         if (this.settings.lastStartAddedTime.getTime() - new Date().getTime() < 1000) {
@@ -160,51 +233,14 @@ class RaceDetailsPage {
         }
     }
     onStartAdded(tr) {
+        var _a;
         console.log(`added row ${tr.outerHTML}`);
-        const raceName = tr.getAttribute('data-class-id');
+        const raceName = (_a = tr.querySelector('[data-class-id]')) === null || _a === void 0 ? void 0 : _a.getAttribute('data-class-id');
         if (raceName) {
             // then we will use this and see how long it has been for checking if we auto-click the edit button.
             this.settings.setRaceAddedTime(raceName, new Date);
         }
         tr.click();
-    }
-}
-// SettingsBase.ts
-class SettingsBase {
-    constructor() {
-        this.onChange = () => { };
-        // keep this in case we need to clear out old settings
-        this.lastSettingsChange = null;
-    }
-}
-// RaceDetailsSettings.ts
-/// <reference path="SettingsBase.ts" />
-class RaceDetailsSettings extends SettingsBase {
-    constructor() {
-        super(...arguments);
-        // I probably won't need all of these. I was hoping that the start detail
-        // page would have the race ID.
-        this.raceAddedTimes = new Map();
-    }
-    set lastStartAddedTime(value) {
-        if (this._lastStartAddedTime == value) {
-            return;
-        }
-        this._lastStartAddedTime = value;
-        this.onChange();
-    }
-    get lastStartAddedTime() {
-        return new Date(this._lastStartAddedTime);
-    }
-    setRaceAddedTime(race, value) {
-        if (value == this.raceAddedTimes.get(race)) {
-            return;
-        }
-        this.raceAddedTimes.set(race, value);
-        this.onChange();
-    }
-    getRaceAddedTime(race) {
-        return this.raceAddedTimes.get(race);
     }
 }
 // ScoringPanelPage.ts
