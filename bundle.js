@@ -12,9 +12,19 @@ class SettingsBase {
 class RaceDetailsSettings extends SettingsBase {
     constructor() {
         super(...arguments);
-        // I probably won't need all of these. I was hoping that the start detail
-        // page would have the race ID.
-        this.raceAddedTimes = new Map();
+        this._addPlusNPushed = false;
+        this._initalStartTimeOnEvenMinutes = true;
+        this._startOffsetMinutes = 5;
+    }
+    set startOffsetMinutes(value) {
+        if (this._startOffsetMinutes == value) {
+            return;
+        }
+        this._startOffsetMinutes = value;
+        this.onChange();
+    }
+    get startOffsetMinutes() {
+        return this._startOffsetMinutes;
     }
     set lastStartAddedTime(value) {
         if (this._lastStartAddedTime == value) {
@@ -26,15 +36,31 @@ class RaceDetailsSettings extends SettingsBase {
     get lastStartAddedTime() {
         return new Date(this._lastStartAddedTime);
     }
-    setRaceAddedTime(race, value) {
-        if (value == this.raceAddedTimes.get(race)) {
+    setPlusNPushed() {
+        this.addPlusNPushed = true;
+    }
+    clearPlusNPushed() {
+        this.addPlusNPushed = false;
+    }
+    set addPlusNPushed(value) {
+        if (this._addPlusNPushed == value) {
             return;
         }
-        this.raceAddedTimes.set(race, value);
+        this._addPlusNPushed = value;
         this.onChange();
     }
-    getRaceAddedTime(race) {
-        return this.raceAddedTimes.get(race);
+    get addPlusNPushed() {
+        return this._addPlusNPushed;
+    }
+    set initalStartTimeOnEvenMinutes(value) {
+        if (this._initalStartTimeOnEvenMinutes == value) {
+            return;
+        }
+        this._initalStartTimeOnEvenMinutes = value;
+        this.onChange();
+    }
+    get initalStartTimeOnEvenMinutes() {
+        return this._initalStartTimeOnEvenMinutes;
     }
 }
 // EditStartsPage.ts
@@ -55,6 +81,7 @@ class EditStartsPage {
         // now we need to get the race info and all the starts
         // get the last of the starts
         // and add 5 minutes to the time
+        // change of plans. do the above steps in the RaceDetailsPage StartsTab when the new race is added.
         // and then edit this start, watching for the edit window
         // when the edit window appears, we need to change the date and time to be 5 minutes from last start
         // but only if we haven't already set the time for this start.
@@ -63,18 +90,16 @@ class EditStartsPage {
 }
 // EntryListPage.ts
 class EntryListPage {
-    static create(document, tableFoundEvent) {
-        const regexPattern = /^https?:\/\/theclubspot.com\/dashboard\/regatta\/[^\/]+\/(entry-list\/?)?$/;
-        if (!regexPattern.test(document.URL)) {
-            return null;
-        }
-        return new EntryListPage(document, tableFoundEvent);
+    static create(document) {
+        // const regexPattern = /^https?:\/\/theclubspot.com\/dashboard\/regatta\/[^/]+\/(entry-list\/?)?$/;
+        // if (!regexPattern.test(document.URL)) {
+        //     return null;
+        // }
+        return new EntryListPage(document);
     }
-    constructor(document, tableFoundEvent) {
-        this.tableFoundEvent = (_) => { };
+    constructor(document) {
         this.SEARCH_INTERVAL = 500;
         this.table = undefined;
-        this.TableChangedEvent = (_) => { };
         this.tableChangedObserver = new MutationObserver((mutations) => {
             for (const mutation of mutations) {
                 if (mutation.type === 'childList') {
@@ -83,37 +108,37 @@ class EntryListPage {
                 }
             }
         });
-        this.TableFoundEvent = tableFoundEvent;
         this.document = document;
+        this.searchForTable();
     }
-    set TableFoundEvent(tableFoundEvent) {
-        this.tableFoundEvent = tableFoundEvent;
-        if (this.TableFoundEvent && this.table) {
-            this.TableFoundEvent(this.table);
-        }
+    applyBackgroundColor(row) {
+        row.style.backgroundColor = 'mistyrose';
     }
-    get TableFoundEvent() {
-        return this.tableFoundEvent;
-    }
-    set FindTableEnabled(enableTableSearch) {
-        if (this.FindTableEnabled === enableTableSearch) {
-            return;
-        }
-        if (enableTableSearch) {
-            this.tableSearchTimer = setInterval(() => {
-                this.findTable();
-            }, this.SEARCH_INTERVAL);
+    searchForTable() {
+        this.tableSearchTimer = setInterval(() => {
             this.findTable();
-        }
-        else {
+        }, this.SEARCH_INTERVAL);
+        this.findTable();
+    }
+    onTableFound(table) {
+        const tableRows = table.querySelectorAll('tr');
+        if (tableRows.length > 1) {
             if (this.tableSearchTimer) {
                 clearInterval(this.tableSearchTimer);
             }
-            this.tableSearchTimer = undefined;
+            tableRows.forEach((row) => {
+                var _a;
+                if ((_a = row.textContent) === null || _a === void 0 ? void 0 : _a.includes('CYC')) {
+                    this.applyBackgroundColor(row);
+                }
+            });
+            const tableParentDiv = table.closest('div.view.view_entry-list.active');
+            if (tableParentDiv) {
+                //     elDocument.TableChangedEvent = TableChangedEvent;
+                this.EnableTableChangedEvent(tableParentDiv);
+                // }
+            }
         }
-    }
-    get FindTableEnabled() {
-        return !!this.tableSearchTimer;
     }
     findTable() {
         const allDivs = this.document.querySelectorAll('div.standardCardBody.scrollable.noPadding.fff');
@@ -125,7 +150,7 @@ class EntryListPage {
                     let table = div.querySelector('table');
                     if (table) {
                         this.table = table;
-                        this.RaiseTableFoundEvent();
+                        this.onTableFound(table);
                         return;
                     }
                 }
@@ -133,14 +158,7 @@ class EntryListPage {
         });
     }
     ;
-    RaiseTableFoundEvent() {
-        var _a;
-        if (!this.table) {
-            return;
-        }
-        (_a = this.TableFoundEvent) === null || _a === void 0 ? void 0 : _a.call(this, this.table);
-    }
-    set EnableTableChangedEvent(tableParent) {
+    EnableTableChangedEvent(tableParent) {
         if (tableParent) {
             this.AddDivWatcher(tableParent);
         }
@@ -153,31 +171,32 @@ class EntryListPage {
         this.tableChangedObserver.observe(tableParent, { childList: true, subtree: true });
     }
     RaiseTablesChangedEvent() {
-        var _a;
         if (!this.table) {
             return;
         }
-        (_a = this.TableChangedEvent) === null || _a === void 0 ? void 0 : _a.call(this, this.table);
+        // this.TableChangedEvent?.(this.table);
+        this.searchForTable();
     }
 }
 // RaceDetailsPage.ts
+// this page should be refactored to use the new div visible pattern.
 class RaceDetailsPage {
     static create(document) {
-        // https://theclubspot.com/dashboard/regatta/VTjfs9q0dy/race-details/j2m02BfxCX/starts
-        // const regexPattern = /^https?:\/\/theclubspot.com\/dashboard\/regatta\/[^\/]+\/(edit-start\/?)?$/;
-        const regexPattern = /^https?:\/\/theclubspot.com\/dashboard\/regatta\/[^\/]+\/race-details\/[^\/]+(\/(starts|race-settings|assignments))?\/?$/;
-        if (!regexPattern.test(document.URL)) {
-            return null;
-        }
+        // const regexPattern
+        //     = /^https?:\/\/theclubspot.com\/dashboard\/regatta\/[^\/]+\/race-details\/[^\/]+(\/(starts|race-settings|assignments))?\/?$/;
+        // if (!regexPattern.test(document.URL)) {
+        //     return null;
+        // }
         return new RaceDetailsPage(document);
     }
     constructor(document) {
         this.document = document;
         this.SEARCH_INTERVAL = 200;
-        this.lastrowCount = 0;
-        this.startsTableVisible = false;
+        this.lastRowCount = 0;
+        // private startsTableVisible: boolean = false;
         this.editStartsVisible = false;
         this.raceDetailsVisible = false;
+        this.inAddPlusNButton = false;
         this.settingsStorage = new LocalStorageHandler(RaceDetailsSettings);
         this.settings = this.settingsStorage.getSettings();
         // mutation observer doesn't do it.
@@ -191,16 +210,21 @@ class RaceDetailsPage {
         setInterval(() => {
             const regexPatternStarts = /^https?:\/\/theclubspot.com\/dashboard\/regatta\/[^\/]+\/race-details\/[^\/]+(\/starts)\/?$/;
             const regexPatternEditStart = /^https?:\/\/theclubspot.com\/dashboard\/regatta\/[^\/]+\/(\/edit-start)\/?$/;
-            const regexPatternRaceSettings = /^https?:\/\/theclubspot.com\/dashboard\/regatta\/[^\/]+\/race-details\/[^\/]+(\/race-settings)\/?$/;
+            const regexPatternRaceSettings = /^https?:\/\/theclubspot.com\/dashboard\/regatta\/[^\/]+\/race-details\/[^\/]+(\/race-settings)?\/?$/;
             if (regexPatternStarts.test(this.document.URL)) {
-                this.startsTableVisible = true;
+                // this.startsTableVisible = true;
                 const table = this.document.querySelector('.view_starts table.tableInsert');
                 const rowCount = table === null || table === void 0 ? void 0 : table.querySelectorAll('tr').length;
-                if (!!rowCount && rowCount !== this.lastrowCount) {
-                    if (this.lastrowCount && rowCount > this.lastrowCount) {
-                        this.onStartAdded(table.rows[rowCount - 1]);
+                if (!!rowCount) {
+                    if (rowCount > 1) {
+                        this.addPlusNButtonIfNeeded();
                     }
-                    this.lastrowCount = rowCount;
+                    if (rowCount !== this.lastRowCount) {
+                        if (this.lastRowCount && rowCount > this.lastRowCount) {
+                            this.onStartAdded(table.rows[rowCount - 1]);
+                        }
+                        this.lastRowCount = rowCount;
+                    }
                 }
             }
             else if (regexPatternEditStart.test(this.document.URL)) {
@@ -212,16 +236,70 @@ class RaceDetailsPage {
             else if (regexPatternRaceSettings.test(this.document.URL)) {
                 if (!this.raceDetailsVisible) {
                     this.onRaceDetailsBecameVisible();
+                    this.raceDetailsVisible = true;
                 }
-                this.raceDetailsVisible = true;
             }
             else {
-                this.startsTableVisible = false;
+                // this.startsTableVisible = false;
             }
         }, this.SEARCH_INTERVAL);
     }
+    addPlusNButtonIfNeeded() {
+        if (this.inAddPlusNButton) {
+            return;
+        }
+        this.inAddPlusNButton = true;
+        try {
+            // Get the footer element
+            const footer = document.querySelector('.view_starts .standardCardFooter');
+            if (!footer) {
+                return;
+            }
+            // Check if the button already exists
+            const existingButton = footer.querySelector('a.addPlusNButton');
+            if (existingButton) {
+                return; // The button already exists, so we don't need to add it
+            }
+            // Create a new button
+            const newButton = document.createElement('a');
+            newButton.innerHTML = `new start +<input type="number" value="${this.settings.startOffsetMinutes}"`
+                + `min = "0" step = "1" style = "width: 30px;" > minutes`;
+            newButton.classList.add('cardFooterLink', 'addPlusNButton', 'smallerMarginRight');
+            newButton.onclick = (event) => {
+                if (event.target instanceof HTMLInputElement) {
+                    event.stopPropagation();
+                }
+                else {
+                    this.tappedAddStartPlusN();
+                }
+            };
+            // Add an event listener to the input element
+            const input = newButton.querySelector('input');
+            if (input) {
+                input.addEventListener('input', (event) => {
+                    event.stopPropagation();
+                    this.settings.startOffsetMinutes = parseInt(input.value, 10);
+                });
+            }
+            // Insert the new button before the "+ new start" button
+            const addStartButton = footer.querySelector('a[onclick="tappedAddStart();"]');
+            footer.insertBefore(newButton, addStartButton);
+        }
+        catch (error) {
+            console.error('Error adding "new start + N minutes" button:', error);
+        }
+        finally {
+            this.inAddPlusNButton = false;
+        }
+    }
+    tappedAddStartPlusN() {
+        this.settings.setPlusNPushed();
+        if (window.tappedAddStart) {
+            window.tappedAddStart();
+        }
+    }
     onRaceDetailsBecameVisible() {
-        throw new Error("Method not implemented.");
+        // noop
     }
     onEditStartsBecameVisible() {
         if (this.settings.lastStartAddedTime.getTime() - new Date().getTime() < 1000) {
@@ -233,14 +311,174 @@ class RaceDetailsPage {
         }
     }
     onStartAdded(tr) {
-        var _a;
-        console.log(`added row ${tr.outerHTML}`);
-        const raceName = (_a = tr.querySelector('[data-class-id]')) === null || _a === void 0 ? void 0 : _a.getAttribute('data-class-id');
-        if (raceName) {
-            // then we will use this and see how long it has been for checking if we auto-click the edit button.
-            this.settings.setRaceAddedTime(raceName, new Date);
+        if (this.settings.addPlusNPushed) {
+            this.settings.clearPlusNPushed();
+            this.makeNewStartNMinutesAfterLastStart();
+            return;
         }
-        tr.click();
+        if (this.settings.initalStartTimeOnEvenMinutes) {
+            this.makeStartTimeEvenMinutes();
+        }
+    }
+    getStartObjects() {
+        const raceObject = $(document.body).data("raceObject");
+        return raceObject === null || raceObject === void 0 ? void 0 : raceObject.get("starts");
+    }
+    makeNewStartNMinutesAfterLastStart() {
+        const startObjects = this.getStartObjects();
+        const N = this.settings.startOffsetMinutes;
+        if (!startObjects || startObjects.length < 2) {
+            console.log(`No previous start to add ${this.settings.startOffsetMinutes} minutes to.`);
+            return;
+        }
+        const previousStart = startObjects[startObjects.length - 2];
+        const previousStartTime = new Date(previousStart.get("startTime"));
+        const newStart = startObjects[startObjects.length - 1];
+        const newStartTime = new Date(previousStartTime.getTime() + this.settings.startOffsetMinutes * 60000);
+        this.setStartTime(newStart, newStartTime);
+    }
+    makeStartTimeEvenMinutes() {
+        const startObjects = this.getStartObjects();
+        if (!startObjects || startObjects.length < 1) {
+            return;
+        }
+        const newStart = startObjects[startObjects.length - 1];
+        const newStartTime = new Date(newStart.get("startTime"));
+        newStartTime.setSeconds(0);
+        this.setStartTime(newStart, newStartTime);
+    }
+    setStartTime(newStart, newStartTime) {
+        newStart.set("startTime", newStartTime);
+        newStart.save().then(() => {
+            // I definitly do need to reload the starts.
+            window.clearStarts();
+            window.loadStarts();
+        });
+    }
+}
+// RaceDetailsPage.ts
+class RacesPage {
+    static create(document) {
+        // const regexPattern = /^https?:\/\/theclubspot.com\/dashboard\/regatta\/[^\/]+\/scoring\/races\/?$/;
+        // if (!regexPattern.test(document.URL)) {
+        //     return null;
+        // }
+        return new RacesPage(document);
+    }
+    constructor(document) {
+        this.document = document;
+        this.SEARCH_INTERVAL = 200;
+        this.lastRowCount = 0;
+        // start watching for a new race to be created,
+        // when it is, open the race page and then click edit
+        const table = this.document.querySelector('.view_races table.tableInsert');
+        setInterval(() => {
+            const rowCount = table === null || table === void 0 ? void 0 : table.querySelectorAll('tr').length;
+            if (!!rowCount) {
+                if (rowCount !== this.lastRowCount) {
+                    if (rowCount > 1 && this.lastRowCount && rowCount - this.lastRowCount === 1) {
+                        this.onRaceAdded(table.rows[rowCount - 1]);
+                    }
+                    this.lastRowCount = rowCount;
+                }
+            }
+        }, this.SEARCH_INTERVAL);
+    }
+    onRaceAdded(raceRow) {
+        // check if nickname is set, and if not, set it to R# (MM/DD)
+        const raceObject = $(raceRow).data("raceObject");
+        if (!raceObject) {
+            return;
+        }
+        let nickname = raceObject.get("nickname");
+        if (nickname) {
+            return;
+        }
+        const raceNumber = raceObject.get("number");
+        const date = new Date();
+        const month = (date.getMonth() + 1).toString().padStart(2, '0');
+        const day = date.getDate().toString().padStart(2, '0');
+        nickname = `R${raceNumber} (${month}/${day})`;
+        raceObject.set("nickname", nickname);
+        // now need to save the race object
+        var promise = window.Parse.Promise.as();
+        promise.then(() => {
+            raceObject.save();
+        });
+    }
+}
+// RegattaPage.ts
+class RegattaPage {
+    static create(document) {
+        const regexPattern = /^https?:\/\/theclubspot.com\/dashboard\/regatta\/[^/]+\/?/;
+        if (!regexPattern.test(document.URL)) {
+            return null;
+        }
+        return new RegattaPage(document);
+    }
+    constructor(document) {
+        // discovered just one page loaded for regatta,
+        // and different divs activated
+        // so, create the classes for the subpages (i.e. divs)
+        // when the divs are activated.
+        this.document = document;
+        // find the div with class 'contentBlock' inside of 
+        // thi div with class 'standardContentZone'
+        const contentBlock = this.document.querySelector('.standardContentZone .contentBlock');
+        // And then watch for the specif divs to be activated
+        // this would cause lazy loading, but the mutation observer doesn't
+        // seem to be working. so not tlazy loading, loading all at once.
+        // for example the div with class view_entry-list.
+        const divEntryList = contentBlock === null || contentBlock === void 0 ? void 0 : contentBlock.querySelector('.view_entry-list');
+        if (divEntryList) {
+            EntryListPage.create(this.document);
+            // let entryListPage = EntryListPage.create(this.document);
+            // this.createDivActiveObserver(divEntryList, (active) => {
+            //     if (active) {
+            //         if (!entryListPage) {
+            //             entryListPage = EntryListPage.create(this.document);
+            //         }
+            //     }
+            // });
+        }
+        else {
+            console.error('No div with class view_entry-list found');
+        }
+        const divRaces = contentBlock === null || contentBlock === void 0 ? void 0 : contentBlock.querySelector('.view_scoring .view_races');
+        if (divRaces) {
+            RacesPage.create(this.document);
+        }
+        else {
+            console.error('No div with class view_scoring view_races found');
+        }
+        const divRaceDetails = contentBlock === null || contentBlock === void 0 ? void 0 : contentBlock.querySelector('.view_race-details');
+        if (divRaceDetails) {
+            RaceDetailsPage.create(this.document);
+        }
+        else {
+            console.error('No div with class view_scoring view_race-details found');
+        }
+    }
+    createDivActiveObserver(div, callback) {
+        const observer = new MutationObserver((mutationsList) => {
+            for (const mutation of mutationsList) {
+                if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+                    if (div.classList.contains('active')) {
+                        callback(true);
+                    }
+                    else {
+                        callback(false);
+                    }
+                }
+            }
+        });
+        observer.observe(div, { attributes: true });
+        if (div.classList.contains('active')) {
+            callback(true);
+        }
+        else {
+            callback(false);
+        }
     }
 }
 // ScoringPanelPage.ts
@@ -267,8 +505,47 @@ class ScoringPanelPage {
         };
         this.settingsStorage = new LocalStorageHandler(ScoringPanelSettings);
         this.settings = this.settingsStorage.getSettings();
+        this.putRegattaBannerOnPage();
         this.watchForFinishTimeDivVisibleChanges('#overlay_finish-time');
         this.uiManipulator = new UIManipulator(document);
+        this.modifyReturnMarkupForScoreRowFunction();
+        this.modifyScoredHeaderForReordering();
+    }
+    putRegattaBannerOnPage() {
+        const regattaObject = $(document.body).data('regattaObject');
+        const raceObject = $(document.body).data('raceObject');
+        if (!regattaObject || !raceObject) {
+            // retry in 500 ms
+            setTimeout(() => this.putRegattaBannerOnPage(), 500);
+            return;
+        }
+        const regattaName = regattaObject.get('name');
+        const starts = raceObject.get('starts');
+        let raceDate = regattaObject.get('startDate');
+        if (starts && starts.length) {
+            raceDate = starts[0].get('startTime');
+        }
+        // get the race date in the local time zone
+        const localDate = new Date(raceDate);
+        const raceDateString = localDate.toLocaleDateString();
+        let raceName = raceObject.get('nickname') || `R${raceObject.get('raceNumber')}`;
+        // create the header text to be the regatta name, followed by the race name and date.
+        const headerText = `${regattaName} - ${raceName} (${raceDateString})`;
+        const header = this.document.createElement('h1');
+        header.textContent = headerText;
+        header.style.fontWeight = 'bold';
+        header.style.backgroundColor = 'blue';
+        header.style.textAlign = 'center';
+        header.style.color = 'white';
+        header.textContent = headerText;
+        header.style.fontWeight = 'bold';
+        header.style.backgroundColor = 'blue';
+        header.style.textAlign = 'center';
+        header.style.width = '100%';
+        const contentZoneHeaderFlexGrow = this.document.querySelector('.contentZoneHeader .flexGrowOne');
+        if (contentZoneHeaderFlexGrow) {
+            contentZoneHeaderFlexGrow.appendChild(header);
+        }
     }
     modifyFinishWindow() {
         this.setEnabledInputStyles();
@@ -426,6 +703,170 @@ class ScoringPanelPage {
         }
         this.settings.lastDateUsed = newDate;
     }
+    modifyScoredHeaderForReordering() {
+        const headerDiv = this.document.querySelector('.wrap_scored .mock-table-header-row');
+        if (!headerDiv) {
+            // poll waiting for it to be visible
+            setTimeout(() => this.modifyScoredHeaderForReordering(), 100);
+            return;
+        }
+        // loop through the child divs and number them so we can track the order later.
+        const positionMap = this.settings.resultsColumnOrder;
+        const subDivs = Array.from(headerDiv.children);
+        let colIndex = 0;
+        subDivs.forEach((divElement, index) => {
+            var _a;
+            if (index < 1) {
+                return;
+            }
+            const div = divElement;
+            const position = (_a = positionMap.get(colIndex)) !== null && _a !== void 0 ? _a : colIndex;
+            positionMap.set(colIndex, position);
+            div.setAttribute('charley-data-index', position.toString());
+            div.setAttribute('charley-original-index', colIndex.toString());
+            const leftArrow = document.createElement('div');
+            leftArrow.classList.add('arrow');
+            leftArrow.textContent = '<--';
+            leftArrow.style.display = 'inline-block';
+            leftArrow.style.cursor = 'pointer'; // Add this line to set the cursor to finger
+            leftArrow.addEventListener('click', () => {
+                const currentIndex = parseInt(div.getAttribute('charley-data-index') || '0');
+                let previousIndex = currentIndex - 1;
+                while (previousIndex >= 0) {
+                    // now find the div with 'charley-data-index' equal to previousIndex
+                    const previousDiv = subDivs.find(div => div.getAttribute('charley-data-index') === previousIndex.toString());
+                    this.swapDivDataIndexes(div, previousDiv);
+                    if ($(previousDiv).is(':visible')) {
+                        break;
+                    }
+                    previousIndex--;
+                }
+                this.updateColumnOrder();
+            });
+            div.insertBefore(leftArrow, div.firstChild);
+            const rightArrow = document.createElement('div');
+            rightArrow.classList.add('arrow');
+            rightArrow.textContent = '-->';
+            rightArrow.style.display = 'inline-block';
+            rightArrow.style.cursor = 'pointer'; // Add this line to set the cursor to finger
+            rightArrow.addEventListener('click', () => {
+                const currentIndex = parseInt(div.getAttribute('charley-data-index') || '0');
+                let nextIndex = currentIndex + 1;
+                while (nextIndex < subDivs.length) {
+                    const nextDiv = subDivs.find(div => div.getAttribute('charley-data-index') === nextIndex.toString());
+                    this.swapDivDataIndexes(div, nextDiv);
+                    if ($(nextDiv).is(':visible')) {
+                        break;
+                    }
+                    nextIndex++;
+                }
+                this.updateColumnOrder();
+            });
+            div.appendChild(rightArrow);
+            colIndex++;
+        });
+        this.settings.saveResultsColumnOrder();
+        this.positionColumnsInCorrectOrder();
+    }
+    swapDivDataIndexes(div1, div2) {
+        if (!div1.getAttribute('charley-data-index') || !div2.getAttribute('charley-data-index')) {
+            return;
+        }
+        const index1 = parseInt(div1.getAttribute('charley-data-index') || '0');
+        const index2 = parseInt(div2.getAttribute('charley-data-index') || '0');
+        div1.setAttribute('charley-data-index', index2.toString());
+        div2.setAttribute('charley-data-index', index1.toString());
+    }
+    updateColumnOrder() {
+        const headerDiv = this.document.querySelector('.wrap_scored .mock-table-header-row');
+        const positionMap = this.settings.resultsColumnOrder;
+        const subDivs = Array.from(headerDiv.children);
+        subDivs.forEach(div => {
+            if (div.getAttribute('charley-data-index')) {
+                const currentIndex = parseInt(div.getAttribute('charley-data-index') || '0');
+                const originalIndex = parseInt(div.getAttribute('charley-original-index') || '0');
+                positionMap.set(originalIndex, currentIndex);
+            }
+        });
+        this.settings.saveResultsColumnOrder();
+        this.positionColumnsInCorrectOrder();
+    }
+    positionColumnsInCorrectOrder() {
+        const headerDiv = this.document.querySelector('.wrap_scored .mock-table-header-row');
+        const positionMap = this.settings.resultsColumnOrder;
+        const subDivs = Array.from(headerDiv.children);
+        subDivs.sort((a, b) => this.sortColumns(a, b, positionMap));
+        subDivs.forEach(div => headerDiv.appendChild(div));
+        const scoreRows = this.document.querySelectorAll('.wrap_scored .table-view-row');
+        scoreRows.forEach(row => this.sortColumnsInRow(row, positionMap));
+    }
+    sortColumns(a, b, positionMap) {
+        var _a, _b;
+        const aIndex = parseInt(a.getAttribute('charley-original-index') || '-1');
+        const bIndex = parseInt(b.getAttribute('charley-original-index') || '-2');
+        const aSort = (_a = positionMap.get(aIndex)) !== null && _a !== void 0 ? _a : aIndex;
+        const bSort = (_b = positionMap.get(bIndex)) !== null && _b !== void 0 ? _b : bIndex;
+        return aSort - bSort;
+    }
+    sortColumnsInRow(row, positionMap = null) {
+        if (!positionMap) {
+            positionMap = this.settings.resultsColumnOrder;
+        }
+        const subDivs = Array.from(row.children);
+        // sort the subDivs by the order in the positionMap
+        subDivs.sort((a, b) => this.sortColumns(a, b, positionMap));
+        // and then re-insert them in the correct order
+        subDivs.forEach(div => row.appendChild(div));
+        return row;
+    }
+    modifyReturnMarkupForScoreRowFunction() {
+        const oldFunction = window.returnMarkupForScoreRow;
+        const oldDateFormat = window.formatStartOrFinishTime;
+        const parser = new DOMParser();
+        window.returnMarkupForScoreRow = (scoreObject, letterScore_client) => {
+            try {
+                if (!this.settings.showDateForStartFinish) {
+                    window.formatStartOrFinishTime = (date, includeDate) => {
+                        // replace the dateFormat function to only show the time
+                        const newValue = oldDateFormat(date, false);
+                        return newValue;
+                    };
+                }
+                let markup = oldFunction(scoreObject, letterScore_client);
+                const doc = parser.parseFromString(markup, 'text/html');
+                const parentDiv = doc.querySelector('div');
+                const newDiv = this.addIndexesToSubDivs(parentDiv);
+                markup = (new XMLSerializer()).serializeToString(newDiv);
+                return markup;
+            }
+            catch (error) {
+                console.error('An error occurred:', error);
+                // Handle the error or throw it again
+                throw error;
+            }
+            finally {
+                window.dateFormatformatStartOrFinishTime = oldDateFormat;
+            }
+        };
+        // at this time we also need to see if there are already any rows generated, and we will need to mark them up too
+        const scoreRows = this.document.querySelectorAll('.wrap_scored .table-view-row');
+        scoreRows.forEach(row => {
+            this.addIndexesToSubDivs(row);
+        });
+    }
+    addIndexesToSubDivs(parentDiv) {
+        const subDivs = Array.from(parentDiv.children);
+        let colIndex = 0;
+        subDivs.forEach((div, index) => {
+            if (index < 2) {
+                return;
+            }
+            div.setAttribute('charley-original-index', colIndex.toString());
+            colIndex++;
+        });
+        parentDiv = this.sortColumnsInRow(parentDiv);
+        return parentDiv;
+    }
 }
 // ScoringPanelSettings.ts
 /*
@@ -436,6 +877,13 @@ the next steps:
 */
 /// <reference path="SettingsBase.ts" />
 class ScoringPanelSettings extends SettingsBase {
+    constructor() {
+        super(...arguments);
+        this._resultsColumnOrderString = '';
+        this._resultsColumnOrder = new Map();
+        this._showDateForStartFinish = false;
+        this.onResultsColumnOrderChanged = () => { };
+    }
     get enableDateInput() {
         return this._enableDateInput;
     }
@@ -447,10 +895,16 @@ class ScoringPanelSettings extends SettingsBase {
         this.onChange();
     }
     get lastDateUsed() {
-        if (!this._lastDateUsed || isNaN(this._lastDateUsed.getTime())) {
+        try {
+            if (!this._lastDateUsed) {
+                return null;
+            }
+            return new Date(this._lastDateUsed);
+        }
+        catch (error) {
+            console.error(`Error occurred while getting lastDateUsed ${this._lastDateUsed}:`, error);
             return null;
         }
-        return new Date(this._lastDateUsed);
     }
     set lastDateUsed(value) {
         if (this._lastDateUsed == value) {
@@ -458,6 +912,32 @@ class ScoringPanelSettings extends SettingsBase {
         }
         this._lastDateUsed = value;
         this.onChange();
+    }
+    get resultsColumnOrder() {
+        if (!(this._resultsColumnOrder instanceof Map)) {
+            this._resultsColumnOrder = LocalStorageHandler.deserializeMap(this._resultsColumnOrderString);
+        }
+        return this._resultsColumnOrder;
+    }
+    set resultsColumnOrder(value) {
+        if (JSON.stringify(this._resultsColumnOrder) == JSON.stringify(value)) {
+            return;
+        }
+        this._resultsColumnOrder = value;
+    }
+    saveResultsColumnOrder() {
+        this._resultsColumnOrderString = LocalStorageHandler.serializeMap(this._resultsColumnOrder);
+        this.onChange();
+    }
+    set showDateForStartFinish(value) {
+        if (this._showDateForStartFinish === value) {
+            return;
+        }
+        this._showDateForStartFinish = value;
+        this.onChange();
+    }
+    get showDateForStartFinish() {
+        return this._showDateForStartFinish;
     }
 }
 class UIManipulator {
@@ -510,58 +990,25 @@ class UIManipulator {
     }
 }
 // version.ts 
-const versionDate = '240418';
-const versionMinor = '5';
+const versionDate = '240501';
+const versionMinor = '0';
 const fullVersion = `0.1.${versionDate}.${versionMinor}`;
 // main_script.ts
 /// <reference path="version.ts" />
 (function () {
     console.log(`clubspot fix version ${fullVersion} by Charley Rathkopf`);
-    // Function to apply the background color
-    function applyBackgroundColor(row) {
-        row.style.backgroundColor = 'mistyrose';
-    }
     let elDocument = null;
-    let spPage = null;
-    let raceDetailsPage = null;
+    let page = null;
     window.addEventListener('load', () => {
-        elDocument = EntryListPage.create(document, TableFoundEvent);
-        if (elDocument) {
-            elDocument.FindTableEnabled = true;
+        page = ScoringPanelPage.create(document);
+        if (page) {
             return;
         }
-        spPage = ScoringPanelPage.create(document);
-        if (spPage) {
-            return;
-        }
-        raceDetailsPage = RaceDetailsPage.create(document);
-        if (raceDetailsPage) {
+        page = RegattaPage.create(document);
+        if (page) {
             return;
         }
     });
-    function TableFoundEvent(table) {
-        const tableRows = table.querySelectorAll('tr');
-        if (elDocument && tableRows.length > 1) {
-            elDocument.FindTableEnabled = false;
-            tableRows.forEach((row) => {
-                var _a;
-                if ((_a = row.textContent) === null || _a === void 0 ? void 0 : _a.includes('CYC')) {
-                    applyBackgroundColor(row);
-                }
-            });
-            const tableParentDiv = table.closest('div.view.view_entry-list.active');
-            if (tableParentDiv) {
-                elDocument.TableChangedEvent = TableChangedEvent;
-                elDocument.EnableTableChangedEvent = tableParentDiv;
-            }
-        }
-    }
-    function TableChangedEvent(_) {
-        if (elDocument) {
-            elDocument.EnableTableChangedEvent = undefined;
-            elDocument.FindTableEnabled = true;
-        }
-    }
 })();
 // storage.ts
 // Define a class to handle local storage operations
@@ -571,9 +1018,9 @@ class LocalStorageHandler {
         this.settingsCtor = TCtor;
         const typeName = TCtor.name;
         const currentUrl = window.location.href;
-        const regex = /\/([^/]+)\/?$/; // Regular expression to match the last part of the URL
+        const regex = /https:\/\/theclubspot.com\/(dashboard\/regatta|scoring)\/([^/]+)/;
         const match = regex.exec(currentUrl);
-        const raceKey = match ? match[1] : '';
+        const raceKey = match ? match[2] : '';
         this.localStorageKey = `${typeName}_${raceKey}`;
     }
     // note that this will not support concurancy. There should only be
@@ -603,5 +1050,36 @@ class LocalStorageHandler {
             result = new this.settingsCtor();
         }
         return result;
+    }
+    static deserializeMap(json) {
+        const mapRetriever = (key, value) => {
+            if (typeof value === "object" && value !== null) {
+                if (value._meta && value._meta.type === "map") {
+                    return new Map(value.value);
+                }
+            }
+            return value;
+        };
+        try {
+            return new Map(JSON.parse(json, mapRetriever));
+        }
+        catch (error) {
+            console.error("Error deserializing map:", error);
+            return new Map();
+        }
+    }
+    static serializeMap(map) {
+        const stringifyReplacer = (key, value) => {
+            if (typeof value === "object" && value !== null) {
+                if (value instanceof Map) {
+                    return {
+                        _meta: { type: "map" },
+                        value: Array.from(value.entries()),
+                    };
+                }
+            }
+            return value;
+        };
+        return JSON.stringify(map, stringifyReplacer);
     }
 }
