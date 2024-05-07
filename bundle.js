@@ -483,6 +483,18 @@ class RegattaPage {
 }
 // ScoringPanelPage.ts
 class ScoringPanelPage {
+    get settings() {
+        if (!this._settings) {
+            throw new Error('Settings not initialized');
+        }
+        return this._settings;
+    }
+    get uiManipulator() {
+        if (!this._uiManipulator) {
+            throw new Error('UIManipulator not initialized');
+        }
+        return this._uiManipulator;
+    }
     static create(document) {
         const regexPattern = /^https?:\/\/theclubspot.com\/scoring\/[^\/]+\/?$/;
         if (!regexPattern.test(document.URL)) {
@@ -493,7 +505,9 @@ class ScoringPanelPage {
     constructor(document) {
         this.document = document;
         this.SEARCH_INTERVAL = 200;
+        this._settings = null;
         this.isFinishTimeInputVisible = false;
+        this._uiManipulator = null;
         this.onFinishTimeDivVisibleChange = (visible) => {
             if (visible) {
                 this.modifyFinishWindow();
@@ -503,17 +517,34 @@ class ScoringPanelPage {
                 searchField.focus();
             }
         };
-        this.settingsStorage = new LocalStorageHandler(ScoringPanelSettings);
-        this.settings = this.settingsStorage.getSettings();
-        this.putRegattaBannerOnPage();
-        this.watchForFinishTimeDivVisibleChanges('#overlay_finish-time');
-        this.uiManipulator = new UIManipulator(document);
-        this.modifyReturnMarkupForScoreRowFunction();
-        this.modifyScoredHeaderForReordering();
+        // get the regatta ID, and use that as the storage key for the layout settings,
+        // but need Race ID for the finish time settings.
+        let regattaObject = this.regattaObject;
+        // sometimes this isn't loaded yet, in that case wait 100 ms and try again
+        const completeConstructor = () => {
+            if (!regattaObject) {
+                setTimeout(() => {
+                    regattaObject = this.regattaObject;
+                    completeConstructor();
+                }, 100);
+                return;
+            }
+            const regattaId = regattaObject.id;
+            const settingsStorage = new LocalStorageHandler(ScoringPanelSettings, regattaId);
+            this._settings = settingsStorage.getSettings();
+            this.putRegattaBannerOnPage();
+            this.watchForFinishTimeDivVisibleChanges('#overlay_finish-time');
+            this._uiManipulator = new UIManipulator(document);
+            this.modifyReturnMarkupForScoreRowFunction();
+            this.modifyScoredHeaderForReordering();
+            this.uiManipulator.addStyles('div.table-view-row.pointer:focus', { background: 'yellow' }); // add a style to the table rows to make them easier to see
+        };
+        completeConstructor();
     }
+    // ----------------- Regatta Banner -----------------
     putRegattaBannerOnPage() {
-        const regattaObject = $(document.body).data('regattaObject');
-        const raceObject = $(document.body).data('raceObject');
+        const regattaObject = this.regattaObject;
+        const raceObject = this.raceObject;
         if (!regattaObject || !raceObject) {
             // retry in 500 ms
             setTimeout(() => this.putRegattaBannerOnPage(), 500);
@@ -547,6 +578,13 @@ class ScoringPanelPage {
             contentZoneHeaderFlexGrow.appendChild(header);
         }
     }
+    get raceObject() {
+        return $(document.body).data('raceObject');
+    }
+    get regattaObject() {
+        return $(document.body).data('regattaObject');
+    }
+    // ----------------- Modify Finishing Window ------------------
     modifyFinishWindow() {
         this.setEnabledInputStyles();
         this.setDateInputsEnabledState(this.settings.enableDateInput);
@@ -559,6 +597,73 @@ class ScoringPanelPage {
     setEnabledInputStyles() {
         this.disableInputColor = 'lightgray';
         this.enabledInputColor = this.getDateInputs()[0].style.color;
+    }
+    setDateInputsEnabledState(enabled) {
+        const dateInputs = this.getDateInputs();
+        if (this.lastFinishDateUsed) {
+            const date = new Date(this.lastFinishDateUsed);
+            dateInputs[0].value = (date.getMonth() + 1).toString().padStart(2, '0');
+            dateInputs[1].value = date.getDate().toString().padStart(2, '0');
+            dateInputs[2].value = date.getFullYear().toString();
+            // dispatch an event so vue can pick up the change
+            const event = new Event("input", { bubbles: true });
+            dateInputs.forEach(input => input.dispatchEvent(event));
+        }
+        else {
+            this.saveLastDateUsed();
+        }
+        this.settings.enableDateInput = enabled;
+        dateInputs.forEach(input => {
+            if (enabled) {
+                input.style.color = this.enabledInputColor;
+                input.disabled = false;
+            }
+            else {
+                input.style.color = this.disableInputColor;
+                input.disabled = true;
+            }
+        });
+        if (enabled) {
+            dateInputs[0].focus();
+            dateInputs[0].select();
+        }
+        else { // disabled
+            const timeInput = this.getTimeInputs()[0];
+            timeInput.focus();
+            timeInput.select();
+        }
+    }
+    getDateInputs() {
+        return this.document.querySelectorAll('.dateInput.flexGrowOne.flexNoWrap.smallerMarginTop:first-of-type input.required');
+    }
+    getTimeInputs() {
+        return this.document.querySelectorAll('.dateInput.flexGrowOne.flexNoWrap.smallerMarginTop:last-of-type input.required');
+    }
+    fixDateInputs() {
+        this.fixInputsToAutoAdvance(this.getDateInputs(), true);
+    }
+    fixTimeInputs() {
+        this.fixInputsToAutoAdvance(this.getTimeInputs());
+    }
+    fixInputsToAutoAdvance(inputs, isDate = false) {
+        inputs.forEach(input => {
+            input.addEventListener('input', () => {
+                const currentIndex = Array.from(inputs).indexOf(input);
+                const nextInput = inputs[currentIndex + 1] || inputs[0];
+                if (isDate && currentIndex === 2) {
+                    if (input.value.length === 4) {
+                        const timeInputs = this.getTimeInputs();
+                        timeInputs[0].focus();
+                        timeInputs[0].select();
+                    }
+                    return;
+                }
+                if (input.value.length === 2) {
+                    nextInput.focus();
+                    nextInput.select();
+                }
+            });
+        });
     }
     replaceDivAfterH3WithDateSwitch() {
         const div = $("h3:contains('Finish time') ~ .flexGrowOne").get(0);
@@ -594,76 +699,10 @@ class ScoringPanelPage {
         }
         this.setDateInputsEnabledState(enabled);
     }
-    setDateInputsEnabledState(enabled) {
-        const dateInputs = this.getDateInputs();
-        if (this.settings.lastDateUsed) {
-            const date = new Date(this.settings.lastDateUsed);
-            dateInputs[0].value = (date.getMonth() + 1).toString().padStart(2, '0');
-            dateInputs[1].value = date.getDate().toString().padStart(2, '0');
-            dateInputs[2].value = date.getFullYear().toString();
-            // dispatch an event so vue can pick up the change
-            const event = new Event("input", { bubbles: true });
-            dateInputs.forEach(input => input.dispatchEvent(event));
-        }
-        else {
-            this.saveLastDateUsed();
-        }
-        this.settings.enableDateInput = enabled;
-        dateInputs.forEach(input => {
-            if (enabled) {
-                input.style.color = this.enabledInputColor;
-                input.disabled = false;
-            }
-            else {
-                input.style.color = this.disableInputColor;
-                input.disabled = true;
-            }
-        });
-        if (enabled) {
-            dateInputs[0].focus();
-            dateInputs[0].select();
-        }
-        else { // disabled
-            const timeInput = this.getTimeInputs()[0];
-            timeInput.focus();
-            timeInput.select();
-        }
-    }
     get DateInputsEnabled() {
         return this.settings.enableDateInput;
     }
-    getTimeInputs() {
-        return this.document.querySelectorAll('.dateInput.flexGrowOne.flexNoWrap.smallerMarginTop:last-of-type input.required');
-    }
-    getDateInputs() {
-        return this.document.querySelectorAll('.dateInput.flexGrowOne.flexNoWrap.smallerMarginTop:first-of-type input.required');
-    }
-    fixTimeInputs() {
-        this.fixInputsToAutoAdvance(this.getTimeInputs());
-    }
-    fixDateInputs() {
-        this.fixInputsToAutoAdvance(this.getDateInputs(), true);
-    }
-    fixInputsToAutoAdvance(inputs, isDate = false) {
-        inputs.forEach(input => {
-            input.addEventListener('input', () => {
-                const currentIndex = Array.from(inputs).indexOf(input);
-                const nextInput = inputs[currentIndex + 1] || inputs[0];
-                if (isDate && currentIndex === 2) {
-                    if (input.value.length === 4) {
-                        const timeInputs = this.getTimeInputs();
-                        timeInputs[0].focus();
-                        timeInputs[0].select();
-                    }
-                    return;
-                }
-                if (input.value.length === 2) {
-                    nextInput.focus();
-                    nextInput.select();
-                }
-            });
-        });
-    }
+    // ----------------- Finish Time Div Visibility Changes -----------------
     watchForFinishTimeDivVisibleChanges(selector) {
         setInterval(() => {
             const element = this.document.querySelector(selector);
@@ -688,6 +727,7 @@ class ScoringPanelPage {
                 this.saveLastDateUsed();
             });
         });
+        this.saveLastDateUsed();
     }
     getDateInputValue() {
         const dateInputs = this.getDateInputs();
@@ -696,13 +736,20 @@ class ScoringPanelPage {
         const year = parseInt(dateInputs[2].value);
         return new Date(year, month - 1, day);
     }
+    get lastFinishDateUsed() {
+        return this.settings.getLastDateUsedForRace(this.raceObject.id);
+    }
+    set lastFinishDateUsed(value) {
+        this.settings.setLastDateUsedForRace(this.raceObject.id, value);
+    }
     saveLastDateUsed() {
         const newDate = this.getDateInputValue();
-        if (newDate == this.settings.lastDateUsed) {
+        if (!this.lastFinishDateUsed || newDate.getTime() == this.lastFinishDateUsed.getTime()) {
             return;
         }
-        this.settings.lastDateUsed = newDate;
+        this.settings.setLastDateUsedForRace(this.raceObject.id, newDate);
     }
+    // ----------------- Modify Scored Header For Reordering -----------------
     modifyScoredHeaderForReordering() {
         const headerDiv = this.document.querySelector('.wrap_scored .mock-table-header-row');
         if (!headerDiv) {
@@ -879,8 +926,10 @@ the next steps:
 class ScoringPanelSettings extends SettingsBase {
     constructor() {
         super(...arguments);
+        this._lastDateUsedString = '';
+        this._lastDateUsedMap = null;
         this._resultsColumnOrderString = '';
-        this._resultsColumnOrder = new Map();
+        this._resultsColumnOrder = null;
         this._showDateForStartFinish = false;
         this.onResultsColumnOrderChanged = () => { };
     }
@@ -894,30 +943,12 @@ class ScoringPanelSettings extends SettingsBase {
         this._enableDateInput = value;
         this.onChange();
     }
-    get lastDateUsed() {
-        try {
-            if (!this._lastDateUsed) {
-                return null;
-            }
-            return new Date(this._lastDateUsed);
-        }
-        catch (error) {
-            console.error(`Error occurred while getting lastDateUsed ${this._lastDateUsed}:`, error);
-            return null;
-        }
-    }
-    set lastDateUsed(value) {
-        if (this._lastDateUsed == value) {
-            return;
-        }
-        this._lastDateUsed = value;
-        this.onChange();
-    }
     get resultsColumnOrder() {
-        if (!(this._resultsColumnOrder instanceof Map)) {
+        // we need to check for the instance of, because deserialization return an empty object.
+        if (!this._resultsColumnOrder || !(this._resultsColumnOrder instanceof Map)) {
             this._resultsColumnOrder = LocalStorageHandler.deserializeMap(this._resultsColumnOrderString);
         }
-        return this._resultsColumnOrder;
+        return this._resultsColumnOrder || new Map();
     }
     set resultsColumnOrder(value) {
         if (JSON.stringify(this._resultsColumnOrder) == JSON.stringify(value)) {
@@ -926,7 +957,25 @@ class ScoringPanelSettings extends SettingsBase {
         this._resultsColumnOrder = value;
     }
     saveResultsColumnOrder() {
-        this._resultsColumnOrderString = LocalStorageHandler.serializeMap(this._resultsColumnOrder);
+        // if (!this._resultsColumnOrder) {
+        //     return;
+        // }
+        this._resultsColumnOrderString = LocalStorageHandler.serializeMap(this.resultsColumnOrder);
+        this.onChange();
+    }
+    get lastDateUsedMap() {
+        // we need to check for the instance of, because deserialization return an empty object.
+        if (!this._lastDateUsedMap || !(this._lastDateUsedMap instanceof Map)) {
+            this._lastDateUsedMap = LocalStorageHandler.deserializeMap(this._lastDateUsedString);
+        }
+        return this._lastDateUsedMap || new Map();
+    }
+    getLastDateUsedForRace(raceId) {
+        return this.lastDateUsedMap.get(raceId) || null;
+    }
+    setLastDateUsedForRace(raceId, date) {
+        this.lastDateUsedMap.set(raceId, date);
+        this._lastDateUsedString = LocalStorageHandler.serializeMap(this.lastDateUsedMap);
         this.onChange();
     }
     set showDateForStartFinish(value) {
@@ -988,6 +1037,16 @@ class UIManipulator {
         tooltipWrapper.appendChild(tooltipDot);
         return tooltipWrapper;
     }
+    addStyles(selector, styles) {
+        const styleElement = this.document.createElement('style');
+        styleElement.type = 'text/css';
+        styleElement.appendChild(this.document.createTextNode(`${selector} {`));
+        Object.keys(styles).forEach((style) => {
+            styleElement.appendChild(this.document.createTextNode(`${style}: ${styles[style]};`));
+        });
+        styleElement.appendChild(this.document.createTextNode('}'));
+        this.document.head.appendChild(styleElement);
+    }
 }
 // version.ts 
 const versionDate = '240501';
@@ -1014,14 +1073,19 @@ const fullVersion = `0.1.${versionDate}.${versionMinor}`;
 // Define a class to handle local storage operations
 class LocalStorageHandler {
     // Copiolot search term "if i have a generic T in typescript, can I find what type T represents?"
-    constructor(TCtor) {
+    constructor(TCtor, key = '') {
         this.settingsCtor = TCtor;
         const typeName = TCtor.name;
-        const currentUrl = window.location.href;
-        const regex = /https:\/\/theclubspot.com\/(dashboard\/regatta|scoring)\/([^/]+)/;
-        const match = regex.exec(currentUrl);
-        const raceKey = match ? match[2] : '';
-        this.localStorageKey = `${typeName}_${raceKey}`;
+        if (key) {
+            this.localStorageKey = `${typeName}_${key}`;
+        }
+        else {
+            const currentUrl = window.location.href;
+            const regex = /https:\/\/theclubspot.com\/(dashboard\/regatta|scoring)\/([^/]+)/;
+            const match = regex.exec(currentUrl);
+            const raceKey = match ? match[2] : '';
+            this.localStorageKey = `${typeName}_${raceKey}`;
+        }
     }
     // note that this will not support concurancy. There should only be
     // one instance of a settings for any given key.
